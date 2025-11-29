@@ -23,6 +23,8 @@ import {
   User,
   Zap,
 } from "lucide-react";
+import NotificationBell from "@/components/notifications/NotificationBell";
+import AuthStatus from "@/components/auth/AuthStatus";
 
 export default function ProfilPage() {
   const [isDark, setIsDark] = useState(false);
@@ -66,6 +68,11 @@ export default function ProfilPage() {
                 Gere ton compte, tes parametres Telegram et decouvre les options
                 PRO que tu pourras debloquer plus tard.
               </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <NotificationBell />
+              <AuthStatus />
             </div>
           </header>
 

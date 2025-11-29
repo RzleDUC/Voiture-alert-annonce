@@ -1,14 +1,17 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { ThemeRail, THEME_STORAGE_KEY } from "@/components/layout/ThemeRail";
 import FiltersForm from "@/components/dashboard/FiltersForm";
 import FaqWidget from "@/components/ui/FaqWidget";
+import NotificationBell from "@/components/notifications/NotificationBell";
+import AuthStatus from "@/components/auth/AuthStatus";
 
 export default function DashboardPage() {
   const [isDark, setIsDark] = useState(false);
 
+  // Theme
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -42,13 +45,18 @@ export default function DashboardPage() {
           >
             <div>
               <h1 className="text-2xl md:text-3xl font-bold">
-                Tableau de bord - Filtres d&apos;annonces
+                Tableau de bord - Filtres d'annonces
               </h1>
               <p className={`text-sm md:text-base ${headerSubtitle}`}>
                 Configure ici les criteres des voitures que tu veux surveiller.
                 Plus tard, ces filtres seront utilises par n8n + Telegram pour
-                t&apos;envoyer des alertes.
+                t'envoyer des alertes.
               </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <NotificationBell />
+              <AuthStatus />
             </div>
           </header>
 

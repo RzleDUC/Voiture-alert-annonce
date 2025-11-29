@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -12,11 +12,13 @@ import {
   conditionOptions,
   exchangeOptions,
 } from "@/data/carCatalog";
+import { supabase } from "@/lib/supabaseClient";
 
 const STORAGE_KEY = "va.savedModels";
 const MAX_FREE_CARDS = 2;
 const MIN_YEAR = 1935;
 const MAX_YEAR = new Date().getFullYear() + 2;
+
 const inputClass =
   "text-sm bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 " +
   "dark:bg-slate-800 dark:border-slate-600 dark:text-slate-50 dark:placeholder:text-slate-400";
@@ -81,8 +83,9 @@ function validateCard(card) {
 export default function FiltersForm() {
   const [cards, setCards] = useState([emptyCard()]);
   const [saveMessage, setSaveMessage] = useState("");
+  const [clientId, setClientId] = useState(null); // = supabase user.id
 
-  // Charger depuis localStorage
+  // 1) Charger depuis localStorage (cartes déjà enregistrées)
   useEffect(() => {
     if (typeof window === "undefined") return;
     const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -100,6 +103,25 @@ export default function FiltersForm() {
     } catch {
       // ignore
     }
+  }, []);
+
+  // 2) Récupérer l'utilisateur Supabase (vrai user.id)
+  useEffect(() => {
+    async function loadUser() {
+      try {
+        const { data, error } = await supabase.auth.getUser();
+        if (error) {
+          console.error("Supabase getUser error:", error);
+          setClientId(null);
+          return;
+        }
+        setClientId(data?.user?.id || null);
+      } catch (err) {
+        console.error("Supabase getUser exception:", err);
+        setClientId(null);
+      }
+    }
+    loadUser();
   }, []);
 
   const allMakes = useMemo(
@@ -131,8 +153,24 @@ export default function FiltersForm() {
     );
   };
 
-  const handleDeleteCard = (cardId) => {
+  const handleDeleteCard = async (cardId) => {
+    // 1) Mise à jour de l'UI
     setCards((prev) => prev.filter((c) => c.id !== cardId));
+
+    // 2) Supprimer dans Supabase
+    const { error } = await supabase
+      .from("car_filters")
+      .delete()
+      .eq("id", cardId);
+
+    if (error) {
+      console.error(
+        "Erreur Supabase lors de la suppression du filtre :",
+        error
+      );
+    }
+
+    // 3) Mise à jour du localStorage
     if (typeof window !== "undefined") {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       if (raw) {
@@ -156,38 +194,69 @@ export default function FiltersForm() {
     setCards((prev) => [...prev, emptyCard()]);
   };
 
-  const handleSave = (cardId) => {
-    setCards((prev) => {
-      const updated = prev.map((c) => {
-        if (c.id !== cardId) return c;
-        const errors = validateCard(c);
-        return { ...c, errors };
-      });
+  const handleSave = async (cardId) => {
+    if (!clientId) {
+      alert(
+        "Initialisation en cours... Réessaie dans une seconde (utilisateur non prêt)."
+      );
+      return;
+    }
 
-      const current = updated.find((c) => c.id === cardId);
-      if (!current) return updated;
-      if (Object.keys(current.errors).length > 0) {
-        setSaveMessage("");
-        return updated;
-      }
+    // 1. Valider les champs de la carte ciblée
+    const updated = cards.map((c) =>
+      c.id === cardId ? { ...c, errors: validateCard(c) } : c
+    );
+    const current = updated.find((c) => c.id === cardId);
 
-      const toSave = updated.map(({ errors, ...rest }) => ({
-        ...rest,
-      }));
+    setCards(updated);
 
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
-      }
-      setSaveMessage("Filtres enregistrés (localStorage). Backend bientôt 😎");
-      setTimeout(() => setSaveMessage(""), 2000);
+    if (!current || Object.keys(current.errors).length > 0) {
+      // erreurs de validation : on ne sauvegarde pas
+      setSaveMessage("");
+      return;
+    }
 
-      return updated;
-    });
+    // 2. Sauvegarder dans localStorage (pour Suivre modèles)
+    const toSaveLocal = updated.map(({ errors, ...rest }) => rest);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(toSaveLocal));
+    }
+
+    // 3. Préparer LA LIGNE pour Supabase (UNE seule carte)
+    const row = {
+      id: current.id, // on réutilise l'id de la carte
+      user_id: clientId, // vrai user.id Supabase
+      marque: current.marque || null,
+      modele: current.modele || null,
+      wilaya: current.wilaya || null,
+      prix_min: current.prixMin ? Number(current.prixMin) : null,
+      prix_max: current.prixMax ? Number(current.prixMax) : null,
+      annee_min: current.anneeMin ? Number(current.anneeMin) : null,
+      annee_max: current.anneeMax ? Number(current.anneeMax) : null,
+      engine: current.engine || null,
+      condition: current.condition || null,
+      exchange: current.exchange || null,
+      fuel: current.fuel || null,
+      gearbox: current.gearbox || null,
+    };
+
+    // 4. Upsert dans Supabase (UNE seule ligne)
+    const { error } = await supabase.from("car_filters").upsert(row);
+
+    if (error) {
+      console.error("Erreur Supabase lors de l'enregistrement :", error);
+      setSaveMessage(
+        "Filtres enregistrés en local [OK], mais erreur Supabase (voir console)."
+      );
+    } else {
+      setSaveMessage("Filtres enregistrés [OK] (Supabase + ce navigateur).");
+    }
+
+    setTimeout(() => setSaveMessage(""), 3000);
   };
 
   return (
     <div className="space-y-6 pb-24">
-      {/* pb-24 = espace pour que les boutons flottants ne recouvrent pas le bas */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
           Modèles de voitures à suivre
@@ -225,7 +294,7 @@ export default function FiltersForm() {
             ? carCatalog[card.marque] || []
             : [];
 
-          const isAdvancedLocked = idx >= 1; // à partir de la deuxième carte
+          const isAdvancedLocked = idx >= 1;
 
           const handleToggleAdvanced = () => {
             if (isAdvancedLocked) {
@@ -469,7 +538,7 @@ export default function FiltersForm() {
                         </select>
                       </div>
 
-                      {/* Etat */}
+                      {/* État */}
                       <div className="space-y-1">
                         <label className="text-xs font-medium text-slate-700">
                           État du véhicule
@@ -490,7 +559,7 @@ export default function FiltersForm() {
                         </select>
                       </div>
 
-                      {/* Echange */}
+                      {/* Échange */}
                       <div className="space-y-1">
                         <label className="text-xs font-medium text-slate-700">
                           Échange
@@ -511,7 +580,7 @@ export default function FiltersForm() {
                         </select>
                       </div>
 
-                      {/* Energie */}
+                      {/* Énergie */}
                       <div className="space-y-1">
                         <label className="text-xs font-medium text-slate-700">
                           Énergie
